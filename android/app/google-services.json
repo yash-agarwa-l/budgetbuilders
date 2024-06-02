@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "359331496106",
+    "project_id": "engineers-theaide",
+    "storage_bucket": "engineers-theaide.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:359331496106:android:a45769b3814ee7a978d0d3",
+        "android_client_info": {
+          "package_name": "com.example.engieers_the_aide"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCx51K_6nR7Rl3USyrOnDBghxNY8dWVhRg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -51,6 +51,11 @@ export default function(sequelize) {
       },
       {
         fields: ['bid_status']
+      },
+      // One bid per builder per order; updates revise the existing bid.
+      {
+        unique: true,
+        fields: ['order_id', 'builder_id']
       }
     ]
   });

@@ -52,17 +52,22 @@ export default function(sequelize) {
     ]
   });
 
+  // Both associations must be registered in a single callback; assigning
+  // Order.associate twice silently dropped the belongsTo(User) link.
   Order.associate = (models) => {
     Order.belongsTo(models.User, {
       foreignKey: 'user_id',
       as: 'user'
     });
-  };
 
-  Order.associate = (models) => {
     Order.hasMany(models.SubOrder, {
       foreignKey: 'order_id',
       as: 'subOrders'
+    });
+
+    Order.hasMany(models.InterestedBuilder, {
+      foreignKey: 'order_id',
+      as: 'bids'
     });
   };
 

@@ -60,11 +60,6 @@ export default function(sequelize) {
       type: DataTypes.ENUM('residential', 'commercial', 'both'), 
       allowNull: false
     },
-    refresh_token: {
-      type: DataTypes.STRING(512), 
-      allowNull: true 
-    },
-    
   }, {
     underscored: true,
     timestamps: true, 
@@ -84,6 +79,18 @@ export default function(sequelize) {
         }
       ]
   });
+
+  Builder.associate = (models) => {
+    Builder.belongsTo(models.User, {
+      foreignKey: 'user_id',
+      as: 'user'
+    });
+
+    Builder.hasMany(models.InterestedBuilder, {
+      foreignKey: 'builder_id',
+      as: 'bids'
+    });
+  };
 
   return Builder;
 }

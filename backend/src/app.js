@@ -1,33 +1,64 @@
 import express from "express";
-import cookieParser from "cookie-parser"
+import cookieParser from "cookie-parser";
 import cors from "cors";
-import userRouter from "./routes/user.route.js";
-import orderRouter from "./routes/order.route.js";
-import interestedBuilderRouter from "./routes/interestedbuilder.route.js";
-import builderRouter from "./routes/builder.route.js";
-import session from "express-session";
-import customerRouter from "./routes/customer.route.js";
-const app=express();
+import helmet from "helmet";
+import pinoHttp from "pino-http";
+import crypto from "node:crypto";
 
-app.use(express.json())
-app.use(express.urlencoded({extended: true}))
-app.use(express.static("public"))
-// app.use(cookieParser());
+import { env } from "./config/env.js";
+import { logger } from "./config/logger.js";
+import { globalLimiter } from "./middlewares/rateLimit.middleware.js";
+import {
+  errorHandler,
+  notFoundHandler,
+} from "./middlewares/error.middleware.js";
 
+import authRouter from "./routes/auth.route.js";
+import healthRouter from "./routes/health.route.js";
 
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-  credentials: true
-}));
+const app = express();
 
-// import requestRouter from "./routes/request.route.js"
+// Correct client IPs behind a proxy, which the rate limiter depends on.
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
 
-app.use("/api/users",userRouter)
-app.use("/api/orders",orderRouter)
-app.use("/api/builder",interestedBuilderRouter);
-app.use("/api/customer/details",customerRouter);
-app.use("/api/builder/details",builderRouter);
-// app.use("/api/requests",requestRouter)
+app.use(helmet());
 
+app.use(
+  cors({
+    origin(origin, callback) {
+      // Same-origin and server-to-server calls arrive without an Origin.
+      if (!origin || env.CORS_ORIGINS.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Origin not allowed by CORS"));
+    },
+    credentials: true,
+  }),
+);
 
-export {app}
+app.use(
+  pinoHttp({
+    logger,
+    genReqId: (req) => req.headers["x-request-id"] ?? crypto.randomUUID(),
+    customLogLevel: (_req, res, err) => {
+      if (err || res.statusCode >= 500) return "error";
+      if (res.statusCode >= 400) return "warn";
+      return "info";
+    },
+  }),
+);
+
+app.use(express.json({ limit: "100kb" }));
+app.use(express.urlencoded({ extended: true, limit: "100kb" }));
+app.use(cookieParser());
+
+app.use("/health", healthRouter);
+
+app.use("/api", globalLimiter);
+app.use("/api/auth", authRouter);
+
+app.use(notFoundHandler);
+app.use(errorHandler);
+
+export { app };

@@ -1,274 +1,173 @@
-import db from '../models/index.js';
-import { asyncHandler } from '../utils/asyncHandler.js';
-import { ApiError } from '../utils/apiError.js';
-import { ApiResponse } from '../utils/apiResponse.js';
+import db from "../models/index.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { ApiError } from "../utils/apiError.js";
+import { ApiResponse } from "../utils/apiResponse.js";
 
-const createOrder = asyncHandler(async (req, res) => {
-    const transaction = await db.sequelize.transaction();
-    try {
-        const { total_offered_price, subOrders } = req.body;
-        const user_id = req.user.id; 
+const ORDER_INCLUDES = [{ model: db.SubOrder, as: "subOrders" }];
 
-        if (!total_offered_price || !subOrders?.length) {
-            throw new ApiResponse(400, "Total price and suborders required");
-        }
+/**
+ * Loads an order the caller is allowed to act on. Ownership is checked in the
+ * query itself, so one customer can never read or modify another's order by
+ * guessing an id.
+ */
+async function findOwnedOrder(orderId, userId, transaction) {
+  const order = await db.Order.findOne({
+    where: { id: orderId, user_id: userId },
+    transaction,
+  });
 
-        const user = await db.User.findByPk(user_id, { transaction });
-        if (!user) throw new ApiResponse(404, "User not found");
+  if (!order) {
+    // Deliberately a 404 rather than a 403: revealing that the id exists but
+    // belongs to somebody else is itself a leak.
+    throw ApiError.notFound("Order not found");
+  }
 
-        for (const sub of subOrders) {
-            if (!sub.type || !sub.details) {
-                throw new ApiResponse(400, "Missing type/details in suborder");
-            }
-            if (!['house', 'stairs', 'room', 'ceiling', 'other'].includes(sub.type)) {
-                throw new ApiResponse(400, `Invalid type: ${sub.type}`);
-            }
-        }
+  return order;
+}
 
-        const order = await db.Order.create({
-            total_offered_price,
-            user_id: user.id,
-            order_status: 'pending'
-        }, { transaction });
+export const createOrder = asyncHandler(async (req, res) => {
+  const { total_offered_price, subOrders } = req.body;
 
-        const subOrderData = subOrders.map(sub => ({
-            ...sub,
-            order_id: order.id
-        }));
+  const order = await db.sequelize.transaction(async (transaction) => {
+    const created = await db.Order.create(
+      {
+        total_offered_price,
+        user_id: req.user.id,
+        order_status: "pending",
+      },
+      { transaction },
+    );
 
-        await db.SubOrder.bulkCreate(subOrderData, { 
-            transaction,
-            validate: true 
-        });
+    await db.SubOrder.bulkCreate(
+      subOrders.map((sub) => ({ ...sub, order_id: created.id })),
+      { transaction, validate: true },
+    );
 
-        await transaction.commit();
+    return db.Order.findByPk(created.id, {
+      include: ORDER_INCLUDES,
+      transaction,
+    });
+  });
 
-        return res.status(201).json(
-            new ApiResponse(201, "Order created successfully", {
-                order,
-                subOrders: subOrderData
-            })
-        );
-
-    } catch (error) {
-        await transaction.rollback();
-        const message = error.errors?.[0]?.message || error.message;
-        const status = error.status || 500;
-        throw new ApiError(status, message);
-    }
+  return res
+    .status(201)
+    .json(new ApiResponse(201, "Order created successfully", order));
 });
 
-const updateOrder = asyncHandler(async (req, res) => {
-    const transaction = await db.sequelize.transaction();
-    try {
-        const { id } = req.params;
-        const { total_offered_price, order_status } = req.body;
+export const updateOrder = asyncHandler(async (req, res) => {
+  const { total_offered_price, order_status } = req.body;
 
-        const order = await db.Order.findByPk(id, { transaction });
-        if (!order) {
-            throw new ApiError(404, "Order not found");
-        }
+  const order = await db.sequelize.transaction(async (transaction) => {
+    const found = await findOwnedOrder(req.params.id, req.user.id, transaction);
 
-        if (total_offered_price !== undefined) {
-            order.total_offered_price = total_offered_price;
-        }
-
-        if (order_status && !['pending', 'accepted', 'completed', 'cancelled'].includes(order_status)) {
-            throw new ApiError(400, "Invalid order status");
-        }
-
-        if (order_status) {
-            order.order_status = order_status;
-        }
-
-        await order.save({ transaction });
-        await transaction.commit();
-
-        return res.status(200).json(
-            new ApiResponse(200, "Order updated successfully", order)
-        );
-
-    } catch (error) {
-        await transaction.rollback();
-        const status = error.status || 500;
-        const message = error.message || "Failed to update order";
-        throw new ApiError(status, message);
+    // Once builders have committed to a price the customer cannot silently
+    // move it; the order has to be cancelled and raised again.
+    if (total_offered_price !== undefined && found.order_status !== "pending") {
+      throw ApiError.conflict(
+        "The offered price can only be changed while the order is pending",
+      );
     }
+
+    await found.update(
+      {
+        ...(total_offered_price !== undefined ? { total_offered_price } : {}),
+        ...(order_status ? { order_status } : {}),
+      },
+      { transaction },
+    );
+
+    return found;
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, "Order updated successfully", order));
 });
 
+export const deleteOrder = asyncHandler(async (req, res) => {
+  await db.sequelize.transaction(async (transaction) => {
+    const order = await findOwnedOrder(req.params.id, req.user.id, transaction);
 
-const deleteOrder = asyncHandler(async (req, res) => {
-    const transaction = await db.sequelize.transaction();
-    try {
-        const { id } = req.params;
-        
-        const order = await db.Order.findByPk(id, { transaction });
-        if (!order) {
-            throw new ApiError(404, "Order not found");
-        }
-
-        await order.destroy({ transaction });
-        await transaction.commit();
-
-        return res.status(200).json(
-            new ApiResponse(200, "Order deleted successfully")
-        );
-
-    } catch (error) {
-        await transaction.rollback();
-        const status = error.status || 500;
-        const message = error.message || "Failed to delete order";
-        throw new ApiError(status, message);
+    if (order.order_status === "accepted") {
+      throw ApiError.conflict(
+        "An accepted order cannot be deleted; cancel it instead",
+      );
     }
+
+    await order.destroy({ transaction });
+  });
+
+  return res.status(200).json(new ApiResponse(200, "Order deleted successfully"));
 });
 
-const getOrderById = asyncHandler(async (req, res) => {
-    try {
-        const { id } = req.params;
-        
-        const order = await db.Order.findByPk(id, {
-            include: [{
-                model: db.SubOrder,
-                as: 'subOrders'
-            }]
-        });
+/** A customer reads their own order; a builder may read any open order to bid. */
+export const getOrderById = asyncHandler(async (req, res) => {
+  const where = { id: req.params.id };
 
-        if (!order) {
-            throw new ApiError(404, "Order not found");
-        }
+  if (req.user.role === "customer") {
+    where.user_id = req.user.id;
+  }
 
-        return res.status(200).json(
-            new ApiResponse(200, "Order retrieved successfully", order)
-        );
+  const order = await db.Order.findOne({ where, include: ORDER_INCLUDES });
 
-    } catch (error) {
-        const status = error.status || 500;
-        const message = error.message || "Failed to fetch order";
-        throw new ApiError(status, message);
-    }
+  if (!order) {
+    throw ApiError.notFound("Order not found");
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, "Order retrieved successfully", order));
 });
 
-// const getOrdersByUserId = asyncHandler(async (req, res) => {
-//     try {
-//         const userId = req.user.id;
-//         const { page = 1, limit = 10 } = req.query;
+export const getMyOrders = asyncHandler(async (req, res) => {
+  const { page, limit, status } = req.validatedQuery;
+  const offset = (page - 1) * limit;
 
-//         const offset = (page - 1) * limit;
+  const { count, rows } = await db.Order.findAndCountAll({
+    where: {
+      user_id: req.user.id,
+      ...(status ? { order_status: status } : {}),
+    },
+    include: ORDER_INCLUDES,
+    limit,
+    offset,
+    order: [["created_at", "DESC"]],
+    distinct: true,
+  });
 
-//         const { count, rows: orders } = await db.Order.findAndCountAll({
-//             where: { user_id: userId },
-//             include: [{
-//                 model: db.SubOrder,
-//                 as: 'subOrders'
-//             }],
-//             limit: parseInt(limit),
-//             offset: parseInt(offset),
-//             order: [['created_at', 'DESC']]
-//         });
-
-//         return res.status(200).json(
-//             new ApiResponse(200, "Orders retrieved successfully", {
-//                 total: count,
-//                 page: parseInt(page),
-//                 limit: parseInt(limit),
-//                 orders
-//             })
-//         );
-
-//     } catch (error) {
-//         const status = error.status || 500;
-//         const message = error.message || "Failed to fetch orders";
-//         throw new ApiError(status, message);
-//     }
-// });
-
-const getOrdersByUserId = asyncHandler(async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const { page = 1, limit = 10, status } = req.query;
-
-        const offset = (page - 1) * limit;
-
-        // Define the where clause
-        const whereClause = { user_id: userId };
-        if (status) {
-            whereClause.order_status = status; // Add status filter if provided
-        }
-
-        const { count, rows: orders } = await db.Order.findAndCountAll({
-            where: whereClause, // Apply user_id and optional status filter
-            include: [{
-                model: db.SubOrder,
-                as: 'subOrders'
-            }],
-            limit: parseInt(limit),
-            offset: parseInt(offset),
-            order: [['created_at', 'DESC']]
-        });
-
-        return res.status(200).json(
-            new ApiResponse(200, "Orders retrieved successfully", {
-                total: count,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                orders
-            })
-        );
-
-    } catch (error) {
-        const status = error.status || 500;
-        const message = error.message || "Failed to fetch orders";
-        throw new ApiError(status, message);
-    }
+  return res.status(200).json(
+    new ApiResponse(200, "Orders retrieved successfully", {
+      total: count,
+      page,
+      limit,
+      orders: rows,
+    }),
+  );
 });
 
+/**
+ * The open marketplace a builder browses. Only pending orders are listed, so
+ * work already awarded stops drawing bids.
+ */
+export const getOpenOrders = asyncHandler(async (req, res) => {
+  const { page, limit, status } = req.validatedQuery;
+  const offset = (page - 1) * limit;
 
-const getAllOrders = asyncHandler(async (req, res) => {
-    try {
-        const { page = 1, limit = 10, status } = req.query;
-        const offset = (page - 1) * limit;
+  const { count, rows } = await db.Order.findAndCountAll({
+    where: { order_status: status ?? "pending" },
+    include: ORDER_INCLUDES,
+    limit,
+    offset,
+    order: [["created_at", "DESC"]],
+    distinct: true,
+  });
 
-        const whereClause = {};
-        if (status) whereClause.order_status = status;
-
-        const { count, rows: orders } = await db.Order.findAndCountAll({
-            where: whereClause,
-            include: [
-                {
-                    model: db.SubOrder,
-                    as: 'subOrders'
-                },
-                // {
-                //     model: db.User,
-                //     as: 'user', // Ensure this matches the alias in the association
-                //     attributes: ['id', 'name']
-                // }
-            ],
-            limit: parseInt(limit),
-            offset: parseInt(offset),
-            order: [['created_at', 'DESC']]
-        });
-
-        return res.status(200).json(
-            new ApiResponse(200, "Orders retrieved successfully", {
-                total: count,
-                page: parseInt(page),
-                limit: parseInt(limit),
-                orders
-            })
-        );
-
-    } catch (error) {
-        const status = error.status || 500;
-        const message = error.message || "Failed to fetch orders";
-        throw new ApiError(status, message);
-    }
+  return res.status(200).json(
+    new ApiResponse(200, "Orders retrieved successfully", {
+      total: count,
+      page,
+      limit,
+      orders: rows,
+    }),
+  );
 });
-export { 
-    createOrder, 
-    updateOrder, 
-    deleteOrder, 
-    getOrderById, 
-    getOrdersByUserId, 
-    getAllOrders 
-};

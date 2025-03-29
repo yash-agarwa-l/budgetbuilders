@@ -1,13 +1,26 @@
-import express from 'express';
-import {createCustomer,getCustomers,updateCustomer,deleteCustomer,getCustomerById} from '../controllers/customer.controller.js';
-import { verifyJWT } from '../middlewares/auth.middleware.js';
-// import {createCustomer} from '../controllers/customer.controller.js';
+import express from "express";
+import {
+  createMyProfile,
+  getMyProfile,
+  updateMyProfile,
+  deleteMyProfile,
+} from "../controllers/customer.controller.js";
+import { verifyJWT, requireCustomer } from "../middlewares/auth.middleware.js";
+import { validate } from "../middlewares/validate.middleware.js";
+import {
+  createCustomerSchema,
+  updateCustomerSchema,
+} from "../validators/profile.validator.js";
 
-const customerRouter = express.Router();
+const router = express.Router();
 
-customerRouter.post('/',verifyJWT, createCustomer);
-customerRouter.get('/',verifyJWT, getCustomers);
-customerRouter.put('/:id',verifyJWT, updateCustomer);
-customerRouter.delete('/:id',verifyJWT, deleteCustomer);
-customerRouter.get('/mydetails',verifyJWT, getCustomerById);
-export default customerRouter; 
+router.use(verifyJWT, requireCustomer);
+
+router
+  .route("/me")
+  .post(validate({ body: createCustomerSchema }), createMyProfile)
+  .get(getMyProfile)
+  .patch(validate({ body: updateCustomerSchema }), updateMyProfile)
+  .delete(deleteMyProfile);
+
+export default router;

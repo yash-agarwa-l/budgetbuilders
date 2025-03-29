@@ -17,6 +17,8 @@ import authRouter from "./routes/auth.route.js";
 import healthRouter from "./routes/health.route.js";
 import orderRouter from "./routes/order.route.js";
 import bidRouter from "./routes/bid.route.js";
+import customerRouter from "./routes/customer.route.js";
+import builderRouter from "./routes/builder.route.js";
 
 const app = express();
 
@@ -61,6 +63,8 @@ app.use("/api", globalLimiter);
 app.use("/api/auth", authRouter);
 app.use("/api/orders", orderRouter);
 app.use("/api/bids", bidRouter);
+app.use("/api/customers", customerRouter);
+app.use("/api/builders", builderRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

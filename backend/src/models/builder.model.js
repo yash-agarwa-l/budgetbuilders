@@ -48,7 +48,7 @@ export default function(sequelize) {
         max: 5
       }
     },
-    years_of_Experience: {
+    years_of_experience: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,

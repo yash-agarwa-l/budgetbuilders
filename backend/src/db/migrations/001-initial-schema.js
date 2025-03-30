@@ -97,7 +97,7 @@ export async function up({ context: queryInterface }) {
       allowNull: false,
       defaultValue: 0,
     },
-    years_of_Experience: {
+    years_of_experience: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,

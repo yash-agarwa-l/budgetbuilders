@@ -9,7 +9,7 @@ const PUBLIC_ATTRIBUTES = [
   "name",
   "address",
   "rating",
-  "years_of_Experience",
+  "years_of_experience",
   "type",
   "created_at",
 ];
@@ -83,7 +83,7 @@ export const listBuilders = asyncHandler(async (req, res) => {
     offset,
     order: [
       ["rating", "DESC"],
-      ["years_of_Experience", "DESC"],
+      ["years_of_experience", "DESC"],
     ],
   });
 

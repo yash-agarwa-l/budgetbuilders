@@ -32,7 +32,7 @@ export const createBuilderSchema = z.object({
     .trim()
     .toUpperCase()
     .length(15, "A GST number is exactly 15 characters"),
-  years_of_Experience: z.coerce.number().int().min(0).max(100).default(0),
+  years_of_experience: z.coerce.number().int().min(0).max(100).default(0),
   type: z.enum(["residential", "commercial", "both"]),
 });
 

@@ -75,7 +75,7 @@ export const getBidsForOrder = asyncHandler(async (req, res) => {
       {
         model: db.Builder,
         as: "builder",
-        attributes: ["id", "name", "rating", "years_of_Experience", "type"],
+        attributes: ["id", "name", "rating", "years_of_experience", "type"],
       },
     ],
     limit,

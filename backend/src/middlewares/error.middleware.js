@@ -52,9 +52,7 @@ export function notFoundHandler(req, _res, next) {
   next(ApiError.notFound(`Route ${req.method} ${req.originalUrl} not found`));
 }
 
-// eslint-disable-next-line no-unused-vars -- Express identifies error
-// middleware by its four-parameter signature.
-export function errorHandler(err, req, res, next) {
+export function errorHandler(err, req, res, _next) {
   const error = normalize(err);
 
   const log = req.log ?? logger;
